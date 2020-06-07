@@ -66,7 +66,19 @@ def get_lat_lon_time(gpx_file, use_localtime=True):
     return points
 
 
-def add_exif_using_timestamp(filename, time, points, offset_time=0, verbose=False):
+def add_bearing_offset(bearing, offset):
+    '''
+    Add offset to bearing and ensure that the result r is 0 <= r < 360.
+    '''
+    r = bearing + offset
+    if r >= 0 and r < 360:
+        return r
+    if r >= 360:
+        return r % 360
+    return -(-r % 360)
+
+
+def add_exif_using_timestamp(filename, time, points, offset_time=0, bearing_offset=0.0, verbose=False):
     '''
     Find lat, lon and bearing of filename and write to EXIF.
     '''
@@ -79,6 +91,8 @@ def add_exif_using_timestamp(filename, time, points, offset_time=0, verbose=Fals
 
     try:
         lat, lon, bearing, elevation = interpolate_lat_lon(points, t)
+
+        bearing = add_bearing_offset(bearing, bearing_offset)
 
         lat_deg = decimal_to_dms(lat, ["S", "N"])
         lon_deg = decimal_to_dms(lon, ["W", "E"])
@@ -189,6 +203,10 @@ def get_args():
     p.add_argument('-v', '--verbose',
         action='store_true',
         help='Verbose output')
+    p.add_argument('-b', '--bearing-offset',
+        type=float,
+        default=0,
+        help='Add offset in degree to bearing. For example, use 180.0 if you took your photos backwards.')
     return p.parse_args()
 
 
@@ -199,6 +217,7 @@ if __name__ == '__main__':
     if args.localtime:
         print("Your local timezone is {0}, if this is not correct, your geotags will be wrong.".format(now.strftime('%Y-%m-%d %H:%M:%S %Z')))
 
+    print('Reading file list.')
     if args.path.lower().endswith(".jpg"):
         # single file
         file_list = [args.path]
@@ -214,18 +233,18 @@ if __name__ == '__main__':
     # start time
     start_time = time.time()
 
-    # Estimate capture time with sub-second precision
+    print('Estimating capture time with sub-second precision')
     sub_second_times = estimate_sub_second_time(file_list, args.interval)
     if not sub_second_times:
         sys.exit(1)
 
-    # read gpx file to get track locations
+    print('Reading GPX file to get track locations')
     use_localtime = True if args.localtime else False
     gpx = get_lat_lon_time(args.gpx_file, use_localtime)
 
     print("Starting geotagging of {0} images using {1}.\n".format(len(file_list), args.gpx_file))
 
     for filepath, filetime in zip(file_list, sub_second_times):
-        add_exif_using_timestamp(filepath, filetime, gpx, args.time_offset, args.verbose)
+        add_exif_using_timestamp(filepath, filetime, gpx, offset_time=args.time_offset, bearing_offset=args.bearing_offset, verbose=args.verbose)
 
     print("Done geotagging {0} images in {1:.1f} seconds.".format(len(file_list), time.time()-start_time))
